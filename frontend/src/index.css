@@ -1,0 +1,54 @@
+@import '@fontsource/geist-sans';
+@import '@fontsource/dm-sans';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-white antialiased overflow-x-hidden;
+    font-family: 'Geist Sans', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'DM Sans', sans-serif;
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  /* Minimalist buttons with slight rounded edges */
+  .btn-primary {
+    @apply bg-primary hover:bg-white/90 text-black font-medium py-3 px-6 rounded-sm transition-colors;
+  }
+  
+  .btn-outline {
+    @apply border border-white/20 hover:border-white text-white font-medium py-3 px-6 rounded-sm transition-colors;
+  }
+
+  /* Sharp inputs */
+  .input-field {
+    @apply w-full bg-black border border-white/20 rounded-none px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-primary transition-colors;
+  }
+
+  /* Skeleton animation */
+  .skeleton {
+    @apply bg-white/10 animate-pulse;
+  }
+}
+
+/* Custom minimal scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: black;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-white/20;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary;
+}
