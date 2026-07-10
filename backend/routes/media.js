@@ -224,6 +224,23 @@ router.get('/stats', authenticateToken, async (req, res) => {
   }
 });
 
+// Get media with GPS coordinates for map
+router.get('/map', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, filename, thumbnail, file_type, original_name, exif_latitude, exif_longitude, created_at
+       FROM media 
+       WHERE user_id = $1 AND exif_latitude IS NOT NULL AND exif_longitude IS NOT NULL
+       ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Map media error:', error);
+    res.status(500).json({ error: 'Server error retrieving map media' });
+  }
+});
+
 // Get all user media
 router.get('/', authenticateToken, async (req, res) => {
   try {

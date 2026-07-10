@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { Vault, Database, HardDrive, Cpu, ImageOff, Plus, Search, Filter, ArrowUpDown, X, FileType, Calendar, CheckSquare, Trash2, Folder, Settings, Wrench, LogOut, Edit2 } from 'lucide-react';
+import { Vault, Database, HardDrive, Cpu, ImageOff, Plus, Search, Filter, ArrowUpDown, X, FileType, Calendar, CheckSquare, Trash2, Folder, Settings, Wrench, LogOut, Edit2, Map } from 'lucide-react';
 import { formatBytes } from '../lib/formatters';
 import api from '../lib/api';
 import Uploader from '../components/Uploader';
@@ -13,6 +13,7 @@ import Admin from '../components/Admin';
 import AlbumCard from '../components/AlbumCard';
 import AlbumModal from '../components/AlbumModal';
 import ConfirmModal from '../components/ConfirmModal';
+import MapView from '../components/Map';
 
 export default function Gallery() {
   const [mediaList, setMediaList] = useState([]);
@@ -369,6 +370,12 @@ export default function Gallery() {
           >
             <Search className="w-4 h-4 mr-3 text-white/40" /> Explore
           </button>
+          <button 
+            onClick={() => setCurrentView('Map')}
+            className={`w-full flex items-center px-3 py-2.5 rounded-lg font-medium text-sm transition-colors ${currentView === 'Map' ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}
+          >
+            <Map className="w-4 h-4 mr-3 text-white/70" /> Map View
+          </button>
           
           <div className="pt-6 pb-2 px-3">
             <p className="text-xs font-bold uppercase tracking-widest text-white/40">Library</p>
@@ -590,6 +597,26 @@ export default function Gallery() {
               emptyTitle={currentView === 'Favorites' ? 'No Favorites Yet' : 'Your Vault is Empty'}
               emptyMessage={currentView === 'Favorites' ? 'You haven\'t marked any assets as favorites yet. Click the heart icon on any photo or video to add it here.' : 'Upload some photos and videos to start building your secure personal timeline. Click the Upload button in the top right!'}
             />
+          ) : currentView === 'Map' ? (
+            <MapView user={user} onMediaClick={(media) => {
+              if (media.file_type?.startsWith('video')) {
+                setActiveVideo(media);
+              } else {
+                setActiveMediaIndex(mediaList.findIndex(m => m.id === media.id) || 0); // Open full view, fallback if not in regular list
+                // If it's not in the main mediaList, Lightbox might break, so we might need a single image view, 
+                // but Lightbox supports passing a single image if we hack it, or we just pass the full list.
+                // Actually, passing the whole map media is better but activeMediaIndex expects an index in filteredMediaList.
+                // Let's just set activeInfoMedia for now or implement a better fix.
+                // Wait, Lightbox takes images={filteredMediaList}.
+                // If the map item is in filteredMediaList, it works.
+                const idx = filteredMediaList.findIndex(m => m.id === media.id);
+                if (idx !== -1) {
+                  setActiveMediaIndex(idx);
+                } else {
+                  setActiveInfoMedia(media); // Fallback to info modal if not found in current loaded list
+                }
+              }
+            }} />
           ) : currentView === 'Settings' ? (
             <SettingsView user={user} />
           ) : currentView === 'Admin' ? (
