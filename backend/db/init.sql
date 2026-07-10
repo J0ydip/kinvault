@@ -15,6 +15,19 @@ CREATE TABLE media (
   status VARCHAR DEFAULT 'ready',
   thumbnail VARCHAR,
   is_favorite BOOLEAN DEFAULT FALSE,
+  exif_make VARCHAR,
+  exif_model VARCHAR,
+  exif_lens_model VARCHAR,
+  exif_date_taken TIMESTAMP,
+  exif_latitude FLOAT,
+  exif_longitude FLOAT,
+  exif_width INTEGER,
+  exif_height INTEGER,
+  exif_iso INTEGER,
+  exif_aperture FLOAT,
+  exif_shutter_speed VARCHAR,
+  exif_focal_length FLOAT,
+  duration FLOAT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

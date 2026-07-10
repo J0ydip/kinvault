@@ -1,7 +1,8 @@
+import React, { memo } from 'react';
 import { Play, Trash2, Eye, Image as ImageIcon, Film, Loader2, MoreVertical, CheckCircle2, Heart } from 'lucide-react';
 import { formatBytes } from '../lib/formatters';
 
-export default function MediaCard({ media, user, onDelete, onClick, onShowInfo, isSelectionMode, isSelected, onToggleSelect, onToggleFavorite }) {
+const MediaCard = function MediaCard({ media, user, onDelete, onClick, onShowInfo, isSelectionMode, isSelected, onToggleSelect, onToggleFavorite }) {
   const isVideo = (media.file_type || '').startsWith('video');
   const isProcessing = media.status === 'processing' || media.status === 'uploading';
   
@@ -157,4 +158,12 @@ export default function MediaCard({ media, user, onDelete, onClick, onShowInfo, 
       )}
     </div>
   );
-}
+};
+
+export default memo(MediaCard, (prevProps, nextProps) => {
+  return (
+    prevProps.media === nextProps.media &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isSelectionMode === nextProps.isSelectionMode
+  );
+});

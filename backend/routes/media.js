@@ -118,6 +118,7 @@ router.post('/upload', authenticateToken, upload.array('files', 10), async (req,
               aperture: raw.FNumber || null,
               shutter_speed: raw.ExposureTime ? `1/${Math.round(1 / raw.ExposureTime)}` : null,
               focal_length: raw.FocalLength || null,
+              lens_model: raw.LensModel || null,
             };
           }
         } catch (exifErr) {
@@ -135,6 +136,7 @@ router.post('/upload', authenticateToken, upload.array('files', 10), async (req,
           
           exifData.make = etTags.Make || etTags.AndroidManufacturer || etTags.DeviceManufacturer || null;
           exifData.model = etTags.Model || etTags.AndroidModel || etTags.DeviceModel || null;
+          exifData.lens_model = etTags.LensModel || null;
           
           if (!exifData.make) {
             if (etTags.SamsungModel) {
@@ -167,12 +169,12 @@ router.post('/upload', authenticateToken, upload.array('files', 10), async (req,
       const insertResult = await db.query(
         `INSERT INTO media 
         (user_id, filename, original_name, file_type, size, status,
-         exif_make, exif_model, exif_date_taken, exif_latitude, exif_longitude,
+         exif_make, exif_model, exif_lens_model, exif_date_taken, exif_latitude, exif_longitude,
          exif_width, exif_height, exif_iso, exif_aperture, exif_shutter_speed, exif_focal_length, duration) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
         [
           req.user.id, file.filename, file.originalname, normalizedMime, file.size, initialStatus,
-          exifData.make, exifData.model, exifData.date_taken,
+          exifData.make, exifData.model, exifData.lens_model, exifData.date_taken,
           exifData.latitude, exifData.longitude,
           exifData.width, exifData.height, exifData.iso,
           exifData.aperture, exifData.shutter_speed, exifData.focal_length, videoDuration
@@ -240,6 +242,51 @@ router.get('/map', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Server error retrieving map media' });
   }
 });
+// Get available filters for smart search
+router.get('/filters', authenticateToken, async (req, res) => {
+  try {
+    const makeModelResult = await db.query(
+      `SELECT DISTINCT exif_make as make, exif_model as model
+       FROM media 
+       WHERE user_id = $1 AND (exif_make IS NOT NULL OR exif_model IS NOT NULL)
+       ORDER BY exif_make, exif_model`,
+      [req.user.id]
+    );
+
+    const capitalize = s => s && typeof s === 'string' ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    let cameras = [];
+    let seen = new Set();
+    
+    makeModelResult.rows.forEach(r => {
+      if (!r.make && !r.model) return;
+      const make = capitalize(r.make);
+      const model = r.model; // leave model casing as-is, or capitalize if needed. usually models are capitalized ok.
+      const key = `${make}-${model}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        cameras.push({ make, model });
+      }
+    });
+
+    res.json({
+      cameras
+
+    });
+  } catch (error) {
+    console.error('Fetch filters error:', error);
+    res.status(500).json({ error: 'Server error retrieving filters' });
+  }
+});
+
+// Temporary migration route
+router.get('/migrate', async (req, res) => {
+  try {
+    await db.query('ALTER TABLE media ADD COLUMN IF NOT EXISTS exif_lens_model VARCHAR;');
+    res.json({ success: true, message: 'Column added' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Get all user media
 router.get('/', authenticateToken, async (req, res) => {
@@ -247,6 +294,8 @@ router.get('/', authenticateToken, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
+
+    const { q, make, model, start_date, end_date, media_type } = req.query;
 
     const validSortFields = {
       'newest': 'created_at DESC',
@@ -258,14 +307,70 @@ router.get('/', authenticateToken, async (req, res) => {
     const sortParam = req.query.sort || 'newest';
     const orderByClause = validSortFields[sortParam] || validSortFields['newest'];
 
+    let conditions = ['user_id = $1'];
+    let params = [req.user.id];
+    let paramCount = 1;
+
+    if (q) {
+      paramCount++;
+      conditions.push(`(original_name ILIKE $${paramCount} OR exif_make ILIKE $${paramCount} OR exif_model ILIKE $${paramCount})`);
+      params.push(`%${q}%`);
+    }
+
+    if (make) {
+      paramCount++;
+      conditions.push(`exif_make ILIKE $${paramCount}`);
+      params.push(make);
+    }
+
+    if (model) {
+      paramCount++;
+      conditions.push(`exif_model ILIKE $${paramCount}`);
+      params.push(model);
+    }
+
+    if (start_date) {
+      paramCount++;
+      conditions.push(`COALESCE(exif_date_taken, created_at) >= $${paramCount}`);
+      params.push(start_date);
+    }
+
+    if (end_date) {
+      paramCount++;
+      conditions.push(`COALESCE(exif_date_taken, created_at) <= $${paramCount}`);
+      params.push(end_date);
+    }
+
+    if (media_type) {
+      if (media_type === 'Photos') {
+        conditions.push(`file_type LIKE 'image/%'`);
+      } else if (media_type === 'Videos') {
+        conditions.push(`file_type LIKE 'video/%'`);
+      } else if (media_type === 'Processing') {
+        conditions.push(`status IN ('processing', 'uploading')`);
+      }
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    paramCount++;
+    const limitParam = paramCount;
+    params.push(limit);
+
+    paramCount++;
+    const offsetParam = paramCount;
+    params.push(offset);
+
     const mediaResult = await db.query(
-      `SELECT * FROM media WHERE user_id = $1 ORDER BY ${orderByClause} LIMIT $2 OFFSET $3`,
-      [req.user.id, limit, offset]
+      `SELECT * FROM media WHERE ${whereClause} ORDER BY ${orderByClause} LIMIT $${limitParam} OFFSET $${offsetParam}`,
+      params
     );
 
+    // Count query needs to use the same conditions but without limit/offset
+    const countParams = params.slice(0, params.length - 2);
     const countResult = await db.query(
-      'SELECT COUNT(*) FROM media WHERE user_id = $1',
-      [req.user.id]
+      `SELECT COUNT(*) FROM media WHERE ${whereClause}`,
+      countParams
     );
 
     res.json({

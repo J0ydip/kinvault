@@ -14,6 +14,7 @@ import AlbumCard from '../components/AlbumCard';
 import AlbumModal from '../components/AlbumModal';
 import ConfirmModal from '../components/ConfirmModal';
 import MapView from '../components/Map';
+import SmartFilters from '../components/SmartFilters';
 
 export default function Gallery() {
   const [mediaList, setMediaList] = useState([]);
@@ -28,6 +29,9 @@ export default function Gallery() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [activeSort, setActiveSort] = useState('newest');
   
+  const [showFilters, setShowFilters] = useState(false);
+  const [smartFilters, setSmartFilters] = useState({ make: '', model: '', start_date: '', end_date: '' });
+
   const [currentView, setCurrentView] = useState('Photos');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
 
@@ -97,13 +101,31 @@ export default function Gallery() {
     }
   };
 
-  const fetchMedia = async (pageNum = 1, append = false, sortParam = activeSort) => {
+  const fetchMedia = async (pageNum = 1, append = false, sortParam = activeSort, search = searchQuery, filters = smartFilters, filterType = activeFilter) => {
     if (pageNum === 1) setMediaList([]); 
     setLoading(true);
     try {
-      const res = await api.get(`/media?page=${pageNum}&limit=20&sort=${sortParam}`);
+      const queryParams = new URLSearchParams({
+        page: pageNum,
+        limit: 20,
+        sort: sortParam,
+      });
+      
+      if (search) queryParams.append('q', search);
+      if (filters.make) queryParams.append('make', filters.make);
+      if (filters.model) queryParams.append('model', filters.model);
+      if (filters.start_date) queryParams.append('start_date', filters.start_date);
+      if (filters.end_date) queryParams.append('end_date', filters.end_date);
+      if (filterType !== 'All') queryParams.append('media_type', filterType);
+
+      const res = await api.get(`/media?${queryParams.toString()}`);
       if (append) {
-        setMediaList(prev => [...prev, ...res.data.media]);
+        setMediaList(prev => {
+          // Prevent duplicates by checking ids
+          const existingIds = new Set(prev.map(m => m.id));
+          const newItems = res.data.media.filter(m => !existingIds.has(m.id));
+          return [...prev, ...newItems];
+        });
       } else {
         setMediaList(res.data.media);
       }
@@ -116,8 +138,13 @@ export default function Gallery() {
   };
 
   useEffect(() => {
-    fetchMedia(1, false, activeSort);
-  }, [activeSort]);
+    // Debounce search
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchMedia(1, false, activeSort, searchQuery, smartFilters, activeFilter);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [activeSort, searchQuery, smartFilters, activeFilter]);
 
   useEffect(() => {
     if (currentView === 'Albums' && currentAlbumId === null) {
@@ -126,7 +153,6 @@ export default function Gallery() {
   }, [currentView, currentAlbumId, fetchAlbums]);
 
   useEffect(() => {
-    fetchMedia(1, false, activeSort);
     fetchStats();
 
     const socket = io('http://localhost:3000');
@@ -154,7 +180,7 @@ export default function Gallery() {
     if (!loading && hasMore) {
       const nextPage = page + 1;
       setPage(nextPage);
-      fetchMedia(nextPage, true, activeSort);
+      fetchMedia(nextPage, true, activeSort, searchQuery, smartFilters, activeFilter);
     }
   };
 
@@ -315,7 +341,8 @@ export default function Gallery() {
 
   const baseMediaList = currentAlbumId ? albumMedia : mediaList;
 
-  const filteredMediaList = baseMediaList.filter(media => {
+  const filteredMediaList = currentAlbumId ? baseMediaList.filter(media => {
+    // Client-side search only applies to Albums view now
     const originalName = media.original_name || '';
     const fileType = media.file_type || '';
     
@@ -331,7 +358,7 @@ export default function Gallery() {
     }
 
     return matchesSearch && matchesFilter;
-  });
+  }) : baseMediaList; // Main gallery is already filtered by backend
 
   const sizeMB = (stats.total_size / (1024 * 1024)).toFixed(1);
   // Assume a 5GB arbitrary quota for the minibar
@@ -427,19 +454,31 @@ export default function Gallery() {
         <header className="h-16 px-6 border-b border-white/5 flex items-center justify-between shrink-0 bg-background/80 backdrop-blur-md z-40">
           {/* Centered Search */}
           <div className="flex-1 max-w-2xl mx-auto px-4">
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-primary transition-colors" />
-              <input 
-                id="global-search-input"
-                type="text" 
-                placeholder="Search your photos by filename..." 
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  if (currentView !== 'Photos') setCurrentView('Photos');
-                }}
-                className="w-full bg-surface border border-white/10 rounded-full pl-11 pr-4 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
-              />
+            <div className="flex gap-2 relative">
+              <div className="relative group flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40 group-focus-within:text-primary transition-colors" />
+                <input 
+                  id="global-search-input"
+                  type="text" 
+                  placeholder="Search your library by filename, camera make, or model..." 
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (currentView !== 'Photos') setCurrentView('Photos');
+                  }}
+                  className="w-full bg-surface border border-white/10 rounded-full pl-11 pr-4 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                />
+              </div>
+              <button
+                onClick={() => setShowFilters(!showFilters)}
+                className={`flex items-center justify-center px-4 rounded-full border transition-colors ${
+                  showFilters || smartFilters.make || smartFilters.start_date
+                    ? 'bg-primary border-primary text-black'
+                    : 'bg-surface border-white/10 text-white hover:border-white/30'
+                }`}
+              >
+                <Filter className="w-4 h-4" />
+              </button>
             </div>
           </div>
           
@@ -521,6 +560,18 @@ export default function Gallery() {
             </div>
           </div>
         </header>
+
+        {showFilters && (
+          <SmartFilters 
+            filters={smartFilters} 
+            setFilters={setSmartFilters}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            activeFilter={activeFilter}
+            setActiveFilter={setActiveFilter}
+            onClose={() => setShowFilters(false)} 
+          />
+        )}
 
         {/* Scrollable Timeline View */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
@@ -753,7 +804,7 @@ export default function Gallery() {
 
       {/* File Details Modal */}
       {activeInfoMedia && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-4 animate-in fade-in duration-200">
           <div className="w-full max-w-lg bg-[#161616] border border-white/10 rounded-2xl shadow-2xl relative overflow-hidden max-h-[90vh] overflow-y-auto">
             {/* Header */}
             <div className="sticky top-0 z-10 bg-[#161616] border-b border-white/5 px-6 py-4 flex items-center justify-between">

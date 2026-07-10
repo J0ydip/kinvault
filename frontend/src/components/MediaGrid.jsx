@@ -1,8 +1,8 @@
-import { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, memo } from 'react';
 import { ImageOff } from 'lucide-react';
 import MediaCard from './MediaCard';
 
-export default function MediaGrid({ 
+const MediaGrid = memo(function MediaGrid({ 
   mediaList, user, onDelete, onMediaClick, hasMore, loadMore, loading, onShowInfo,
   isSelectionMode, selectedIds, onToggleSelect, activeSort, onToggleFavorite,
   emptyTitle = "Your Vault is Empty", emptyMessage = "Upload some photos and videos to start building your secure personal timeline. Click the Upload button in the top right!"
@@ -121,4 +121,6 @@ export default function MediaGrid({
       )}
     </div>
   );
-}
+});
+
+export default MediaGrid;
