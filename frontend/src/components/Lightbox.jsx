@@ -1,8 +1,11 @@
-import { useEffect } from 'react';
-import { X, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, Heart, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ImageEditor from './ImageEditor';
+import api from '../lib/api';
 
-export default function Lightbox({ images, currentIndex, onClose, onNavigate, onToggleFavorite }) {
+export default function Lightbox({ images, currentIndex, onClose, onNavigate, onToggleFavorite, onMediaUpdated }) {
+  const [isEditing, setIsEditing] = useState(false);
   
   // Handle keyboard navigation
   useEffect(() => {
@@ -20,8 +23,40 @@ export default function Lightbox({ images, currentIndex, onClose, onNavigate, on
   const currentMedia = images[currentIndex];
 
   const getMediaUrl = (filename) => {
-    return `http://localhost:3000/uploads/user_${currentMedia.user_id}/${filename}`;
+    // Append a version timestamp to bust cache if it was updated recently
+    const updated = new Date(currentMedia.updated_at || currentMedia.created_at).getTime();
+    return `http://localhost:3000/uploads/user_${currentMedia.user_id}/${filename}?v=${updated}`;
   };
+
+  const handleSaveEdit = async (blob) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', blob, currentMedia.original_name);
+      
+      const res = await api.post(`/media/${currentMedia.id}/edit`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (onMediaUpdated) {
+        onMediaUpdated(res.data.media);
+      }
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Failed to save edit:', err);
+      alert('Failed to save edited image.');
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <ImageEditor 
+        media={currentMedia} 
+        url={getMediaUrl(currentMedia.filename)} 
+        onClose={() => setIsEditing(false)} 
+        onSave={handleSaveEdit} 
+      />
+    );
+  }
 
   return (
     <AnimatePresence>
@@ -38,6 +73,16 @@ export default function Lightbox({ images, currentIndex, onClose, onNavigate, on
         >
           <Heart className={`w-6 h-6 transition-colors ${currentMedia.is_favorite ? 'text-red-500 fill-red-500' : 'text-white'}`} />
         </button>
+
+        {!(currentMedia.file_type || '').startsWith('video') && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+            className="absolute top-6 right-40 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-50 pointer-events-auto"
+            title="Edit"
+          >
+            <Edit2 className="w-6 h-6" />
+          </button>
+        )}
 
         <button 
           onClick={onClose}

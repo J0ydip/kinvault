@@ -15,6 +15,7 @@ import AlbumModal from '../components/AlbumModal';
 import ConfirmModal from '../components/ConfirmModal';
 import MapView from '../components/Map';
 import SmartFilters from '../components/SmartFilters';
+import TimelineScrubber from '../components/TimelineScrubber';
 
 export default function Gallery() {
   const [mediaList, setMediaList] = useState([]);
@@ -42,6 +43,7 @@ export default function Gallery() {
   const timeoutRef = useRef(null);
 
   const [stats, setStats] = useState({ total_files: 0, total_size: 0, processing_count: 0 });
+  const [timelineData, setTimelineData] = useState([]);
 
   const [albums, setAlbums] = useState([]);
   const [currentAlbumId, setCurrentAlbumId] = useState(null);
@@ -58,6 +60,15 @@ export default function Gallery() {
       setStats(res.data);
     } catch (err) {
       console.error('Failed to fetch stats', err);
+    }
+  }, []);
+
+  const fetchTimeline = useCallback(async () => {
+    try {
+      const res = await api.get('/media/timeline');
+      setTimelineData(res.data);
+    } catch (err) {
+      console.error('Failed to fetch timeline', err);
     }
   }, []);
 
@@ -154,6 +165,7 @@ export default function Gallery() {
 
   useEffect(() => {
     fetchStats();
+    fetchTimeline();
 
     const socket = io('http://localhost:3000');
     socket.on('connect', () => {
@@ -276,6 +288,11 @@ export default function Gallery() {
     }
   };
 
+  const handleMediaUpdated = (updatedMedia) => {
+    setMediaList(prev => prev.map(m => m.id === updatedMedia.id ? updatedMedia : m));
+    fetchStats();
+  };
+
   const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
     const itemsToDelete = mediaList.filter(m => selectedIds.has(m.id));
@@ -300,6 +317,27 @@ export default function Gallery() {
     if (isSelectionMode) {
       setSelectedIds(new Set()); // Clear on exit
     }
+  };
+
+  const handleTimelineDateSelect = (year, month = null) => {
+    // Determine the start and end dates for the selected period
+    const startDate = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`;
+    
+    // For end date, if month is provided, go to the next month's first day minus 1 day.
+    // If only year is provided, go to Dec 31 of that year.
+    let endDate;
+    if (month) {
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      // We'll just filter up to the 1st of the next month to be safe, or 31st.
+      const lastDay = new Date(year, month, 0).getDate();
+      endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    } else {
+      endDate = `${year}-12-31`;
+    }
+
+    setSmartFilters(prev => ({ ...prev, start_date: startDate, end_date: endDate }));
+    // We don't reset the view, just apply filter so users can see the grid of that date
   };
 
   const handleLogout = () => {
@@ -936,13 +974,13 @@ export default function Gallery() {
       )}
 
       
-      {/* 5. Lightbox for full image view */}
       <Lightbox 
         images={filteredMediaList}
         currentIndex={activeMediaIndex}
         onClose={() => setActiveMediaIndex(null)}
         onNavigate={handleLightboxNavigate}
         onToggleFavorite={handleToggleFavorite}
+        onMediaUpdated={handleMediaUpdated}
       />
       {/* Undo Toast Notification */}
       {pendingDelete && (
@@ -986,6 +1024,11 @@ export default function Gallery() {
           </>
         }
       />
+
+      {/* Timeline Scrubber Overlay */}
+      {currentView === 'Photos' && timelineData.length > 0 && !showFilters && (
+        <TimelineScrubber timelineData={timelineData} onDateSelect={handleTimelineDateSelect} />
+      )}
     </div>
   );
 }

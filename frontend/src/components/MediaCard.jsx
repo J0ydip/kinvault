@@ -7,7 +7,9 @@ const MediaCard = function MediaCard({ media, user, onDelete, onClick, onShowInf
   const isProcessing = media.status === 'processing' || media.status === 'uploading';
   
   const getMediaUrl = (filename) => {
-    return `http://localhost:3000/uploads/user_${user.id}/${filename}`;
+    // Append the file size or updated time as a cache buster so edited images show immediately
+    const updated = media.size || new Date(media.created_at).getTime();
+    return `http://localhost:3000/uploads/user_${user.id}/${filename}?v=${updated}`;
   };
 
   const uploadDate = media.created_at 

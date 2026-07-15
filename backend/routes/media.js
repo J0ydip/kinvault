@@ -201,6 +201,40 @@ router.post('/upload', authenticateToken, upload.array('files', 10), async (req,
   }
 });
 
+// Edit image route
+router.post('/:id/edit', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const mediaId = req.params.id;
+    const mediaRes = await db.query('SELECT * FROM media WHERE id = $1 AND user_id = $2', [mediaId, req.user.id]);
+    
+    if (mediaRes.rows.length === 0) {
+      // Clean up the newly uploaded temp file if we fail
+      require('fs').unlinkSync(file.path);
+      return res.status(404).json({ error: 'Media not found' });
+    }
+
+    const media = mediaRes.rows[0];
+    const originalPath = require('path').join(__dirname, '../../uploads', `user_${req.user.id}`, media.filename);
+    
+    // Replace the original file with the new edited file
+    require('fs').renameSync(file.path, originalPath);
+
+    // Update the size in the DB and return the updated media
+    const updateRes = await db.query(
+      `UPDATE media SET size = $1 WHERE id = $2 RETURNING *`,
+      [file.size, mediaId]
+    );
+
+    res.json({ success: true, media: updateRes.rows[0] });
+  } catch (error) {
+    console.error('Edit error:', error);
+    res.status(500).json({ error: 'Internal server error while saving edit' });
+  }
+});
+
 // Get media statistics
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
@@ -242,6 +276,27 @@ router.get('/map', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Server error retrieving map media' });
   }
 });
+// Get timeline summary (grouped by year/month)
+router.get('/timeline', authenticateToken, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT 
+         EXTRACT(YEAR FROM COALESCE(exif_date_taken, created_at))::INTEGER as year,
+         EXTRACT(MONTH FROM COALESCE(exif_date_taken, created_at))::INTEGER as month,
+         COUNT(*) as count
+       FROM media 
+       WHERE user_id = $1
+       GROUP BY year, month
+       ORDER BY year DESC, month DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Timeline summary error:', error);
+    res.status(500).json({ error: 'Server error retrieving timeline' });
+  }
+});
+
 // Get available filters for smart search
 router.get('/filters', authenticateToken, async (req, res) => {
   try {
